@@ -4,7 +4,7 @@ on:
   workflow_dispatch
 
 jobs:
-  test_pull_request:
+  run_automated_tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -15,4 +15,6 @@ jobs:
       - run: docker ps
       - run: cd test 
       - run: dotnet --help
+      - run: pwd
+      - run: ls
       - run: dotnet test
