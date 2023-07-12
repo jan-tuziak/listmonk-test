@@ -13,8 +13,7 @@ jobs:
           dotnet-version: '6.0.x'
       - run: sh -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-demo.sh)"
       - run: docker ps
-      - run: cd test 
       - run: dotnet --help
       - run: pwd
       - run: ls
-      - run: dotnet test
+      - run: dotnet test test
