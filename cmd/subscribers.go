@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/knadh/listmonk/internal/subimporter"
 	"github.com/knadh/listmonk/models"
 	"github.com/labstack/echo/v4"
 )
@@ -87,10 +88,11 @@ func handleQuerySubscribers(c echo.Context) error {
 		pg  = app.paginator.NewFromURL(c.Request().URL.Query())
 
 		// The "WHERE ?" bit.
-		query   = sanitizeSQLExp(c.FormValue("query"))
-		orderBy = c.FormValue("order_by")
-		order   = c.FormValue("order")
-		out     models.PageResults
+		query     = sanitizeSQLExp(c.FormValue("query"))
+		subStatus = c.FormValue("subscription_status")
+		orderBy   = c.FormValue("order_by")
+		order     = c.FormValue("order")
+		out       models.PageResults
 	)
 
 	// Limit the subscribers to specific lists?
@@ -99,7 +101,7 @@ func handleQuerySubscribers(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("globals.messages.invalidID"))
 	}
 
-	res, total, err := app.core.QuerySubscribers(query, listIDs, order, orderBy, pg.Offset, pg.Limit)
+	res, total, err := app.core.QuerySubscribers(query, listIDs, subStatus, order, orderBy, pg.Offset, pg.Limit)
 	if err != nil {
 		return err
 	}
@@ -182,12 +184,7 @@ loop:
 func handleCreateSubscriber(c echo.Context) error {
 	var (
 		app = c.Get("app").(*App)
-		req struct {
-			models.Subscriber
-			Lists          []int    `json:"lists"`
-			ListUUIDs      []string `json:"list_uuids"`
-			PreconfirmSubs bool     `json:"preconfirm_subscriptions"`
-		}
+		req subimporter.SubReq
 	)
 
 	// Get and validate fields.
@@ -196,19 +193,9 @@ func handleCreateSubscriber(c echo.Context) error {
 	}
 
 	// Validate fields.
-	if len(req.Email) > 1000 {
-		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("subscribers.invalidEmail"))
-	}
-
-	em, err := app.importer.SanitizeEmail(req.Email)
+	req, err := app.importer.ValidateFields(req)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	req.Email = em
-
-	req.Name = strings.TrimSpace(req.Name)
-	if len(req.Name) == 0 || len(req.Name) > stdInputMaxLen {
-		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("subscribers.invalidName"))
 	}
 
 	// Insert the subscriber into the DB.
@@ -251,7 +238,7 @@ func handleUpdateSubscriber(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("subscribers.invalidName"))
 	}
 
-	out, err := app.core.UpdateSubscriberWithLists(id, req.Subscriber, req.Lists, nil, req.PreconfirmSubs, true)
+	out, _, err := app.core.UpdateSubscriberWithLists(id, req.Subscriber, req.Lists, nil, req.PreconfirmSubs, true)
 	if err != nil {
 		return err
 	}
@@ -471,7 +458,7 @@ func handleManageSubscriberListsByQuery(c echo.Context) error {
 	var err error
 	switch req.Action {
 	case "add":
-		err = app.core.AddSubscriptionsByQuery(req.Query, req.ListIDs, req.TargetListIDs)
+		err = app.core.AddSubscriptionsByQuery(req.Query, req.ListIDs, req.TargetListIDs, req.Status)
 	case "remove":
 		err = app.core.DeleteSubscriptionsByQuery(req.Query, req.ListIDs, req.TargetListIDs)
 	case "unsubscribe":
@@ -634,7 +621,7 @@ func sendOptinConfirmationHook(app *App) func(sub models.Subscriber, listIDs []i
 
 		// Send the e-mail.
 		if err := app.sendNotification([]string{sub.Email}, app.i18n.T("subscribers.optinSubject"), notifSubscriberOptin, out); err != nil {
-			app.log.Printf("error sending opt-in e-mail: %s", err)
+			app.log.Printf("error sending opt-in e-mail for subscriber %d (%s): %s", sub.ID, sub.UUID, err)
 			return 0, err
 		}
 

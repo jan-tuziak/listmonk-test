@@ -174,8 +174,9 @@ type subLists struct {
 // Subscription represents a list attached to a subscriber.
 type Subscription struct {
 	List
-	SubscriptionStatus    null.String `db:"subscription_status" json:"subscription_status"`
-	SubscriptionCreatedAt null.String `db:"subscription_created_at" json:"subscription_created_at"`
+	SubscriptionStatus    null.String     `db:"subscription_status" json:"subscription_status"`
+	SubscriptionCreatedAt null.String     `db:"subscription_created_at" json:"subscription_created_at"`
+	Meta                  json.RawMessage `db:"meta" json:"meta"`
 }
 
 // SubscriberExportProfile represents a subscriber's collated data in JSON for export.
@@ -187,7 +188,7 @@ type SubscriberExportProfile struct {
 	LinkClicks    json.RawMessage `db:"link_clicks" json:"link_clicks,omitempty"`
 }
 
-// JSON is is the wrapper for reading and writing arbitrary JSONB fields from the DB.
+// JSON is the wrapper for reading and writing arbitrary JSONB fields from the DB.
 type JSON map[string]interface{}
 
 // StringIntMap is used to define DB Scan()s.
@@ -251,6 +252,7 @@ type Campaign struct {
 	TemplateID        int             `db:"template_id" json:"template_id"`
 	Messenger         string          `db:"messenger" json:"messenger"`
 	Archive           bool            `db:"archive" json:"archive"`
+	ArchiveSlug       null.String     `db:"archive_slug" json:"archive_slug"`
 	ArchiveTemplateID int             `db:"archive_template_id" json:"archive_template_id"`
 	ArchiveMeta       json.RawMessage `db:"archive_meta" json:"archive_meta"`
 
@@ -420,6 +422,12 @@ var markdown = goldmark.New(
 		extension.Table,
 		extension.Strikethrough,
 		extension.TaskList,
+		extension.NewTypographer(
+			extension.WithTypographicSubstitutions(extension.TypographicSubstitutions{
+				extension.LeftDoubleQuote:  []byte(`"`),
+				extension.RightDoubleQuote: []byte(`"`),
+			}),
+		),
 	),
 )
 

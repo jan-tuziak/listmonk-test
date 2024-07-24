@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/gdgvda/cron"
 	"github.com/jmoiron/sqlx"
 	"github.com/jmoiron/sqlx/types"
 	"github.com/knadh/goyesql/v2"
@@ -27,6 +31,7 @@ import (
 	"github.com/knadh/listmonk/internal/bounce"
 	"github.com/knadh/listmonk/internal/bounce/mailbox"
 	"github.com/knadh/listmonk/internal/captcha"
+	"github.com/knadh/listmonk/internal/core"
 	"github.com/knadh/listmonk/internal/i18n"
 	"github.com/knadh/listmonk/internal/manager"
 	"github.com/knadh/listmonk/internal/media"
@@ -69,6 +74,7 @@ type constants struct {
 		AllowBlocklist     bool            `koanf:"allow_blocklist"`
 		AllowExport        bool            `koanf:"allow_export"`
 		AllowWipe          bool            `koanf:"allow_wipe"`
+		RecordOptinIP      bool            `koanf:"record_optin_ip"`
 		Exportable         map[string]bool `koanf:"-"`
 		DomainBlocklist    []string        `koanf:"-"`
 	} `koanf:"privacy"`
@@ -93,6 +99,7 @@ type constants struct {
 	OptinURL     string
 	MessageURL   string
 	ArchiveURL   string
+	AssetVersion string
 
 	MediaUpload struct {
 		Provider   string
@@ -102,6 +109,7 @@ type constants struct {
 	BounceWebhooksEnabled bool
 	BounceSESEnabled      bool
 	BounceSendgridEnabled bool
+	BouncePostmarkEnabled bool
 }
 
 type notifTpls struct {
@@ -183,15 +191,15 @@ func initFS(appDir, frontendDir, staticDir, i18nDir string) stuffbin.FileSystem 
 		}
 	)
 
-	// Get the executable's path.
-	path, err := os.Executable()
+	// Get the executable's execPath.
+	execPath, err := os.Executable()
 	if err != nil {
 		lo.Fatalf("error getting executable path: %v", err)
 	}
 
 	// Load embedded files in the executable.
 	hasEmbed := true
-	fs, err := stuffbin.UnStuff(path)
+	fs, err := stuffbin.UnStuff(execPath)
 	if err != nil {
 		hasEmbed = false
 
@@ -227,7 +235,18 @@ func initFS(appDir, frontendDir, staticDir, i18nDir string) stuffbin.FileSystem 
 		if staticDir == "" {
 			// Default dir in cwd.
 			staticDir = "static"
+		} else {
+			// There is a custom static directory. Any paths that aren't in it, exclude.
+			sf := []string{}
+			for _, def := range staticFiles {
+				s := strings.Split(def, ":")[0]
+				if _, err := os.Stat(path.Join(staticDir, s)); err == nil {
+					sf = append(sf, def)
+				}
+			}
+			staticFiles = sf
 		}
+
 		lo.Printf("loading static files from: %v", staticDir)
 		files = append(files, joinFSPaths(staticDir, staticFiles)...)
 	}
@@ -399,6 +418,11 @@ func initConstants() *constants {
 	c.BounceWebhooksEnabled = ko.Bool("bounce.webhooks_enabled")
 	c.BounceSESEnabled = ko.Bool("bounce.ses_enabled")
 	c.BounceSendgridEnabled = ko.Bool("bounce.sendgrid_enabled")
+	c.BouncePostmarkEnabled = ko.Bool("bounce.postmark.enabled")
+
+	b := md5.Sum([]byte(time.Now().String()))
+	c.AssetVersion = fmt.Sprintf("%x", b)[0:10]
+
 	return &c
 }
 
@@ -448,6 +472,7 @@ func initCampaignManager(q *models.Queries, cs *constants, app *App) *manager.Ma
 		ViewTrackURL:          cs.ViewTrackURL,
 		MessageURL:            cs.MessageURL,
 		ArchiveURL:            cs.ArchiveURL,
+		RootURL:               cs.RootURL,
 		UnsubHeader:           ko.Bool("privacy.unsubscribe_header"),
 		SlidingWindow:         ko.Bool("app.message_sliding_window"),
 		SlidingWindowDuration: ko.Duration("app.message_sliding_window_duration"),
@@ -474,7 +499,7 @@ func initTxTemplates(m *manager.Manager, app *App) {
 }
 
 // initImporter initializes the bulk subscriber importer.
-func initImporter(q *models.Queries, db *sqlx.DB, app *App) *subimporter.Importer {
+func initImporter(q *models.Queries, db *sqlx.DB, core *core.Core, app *App) *subimporter.Importer {
 	return subimporter.New(
 		subimporter.Options{
 			DomainBlocklist:    app.constants.Privacy.DomainBlocklist,
@@ -482,6 +507,9 @@ func initImporter(q *models.Queries, db *sqlx.DB, app *App) *subimporter.Importe
 			BlocklistStmt:      q.UpsertBlocklistSubscriber.Stmt,
 			UpdateListDateStmt: q.UpdateListsDate.Stmt,
 			NotifCB: func(subject string, data interface{}) error {
+				// Refresh cached subscriber counts and stats.
+				core.RefreshMatViews(true)
+
 				app.sendNotification(app.constants.NotifyEmails, subject, notifTplImport, data)
 				return nil
 			},
@@ -571,6 +599,7 @@ func initMediaStore() media.Store {
 	case "s3":
 		var o s3.Opt
 		ko.Unmarshal("upload.s3", &o)
+
 		up, err := s3.NewS3Store(o)
 		if err != nil {
 			lo.Fatalf("error initializing s3 upload provider %s", err)
@@ -601,33 +630,7 @@ func initMediaStore() media.Store {
 // initNotifTemplates compiles and returns e-mail notification templates that are
 // used for sending ad-hoc notifications to admins and subscribers.
 func initNotifTemplates(path string, fs stuffbin.FileSystem, i *i18n.I18n, cs *constants) *notifTpls {
-	// Register utility functions that the e-mail templates can use.
-	funcs := template.FuncMap{
-		"RootURL": func() string {
-			return cs.RootURL
-		},
-		"LogoURL": func() string {
-			return cs.LogoURL
-		},
-		"Date": func(layout string) string {
-			if layout == "" {
-				layout = time.ANSIC
-			}
-			return time.Now().Format(layout)
-		},
-		"L": func() *i18n.I18n {
-			return i
-		},
-		"Safe": func(safeHTML string) template.HTML {
-			return template.HTML(safeHTML)
-		},
-	}
-
-	for k, v := range sprig.GenericFuncMap() {
-		funcs[k] = v
-	}
-
-	tpls, err := stuffbin.ParseTemplatesGlob(funcs, fs, "/static/email-templates/*.html")
+	tpls, err := stuffbin.ParseTemplatesGlob(initTplFuncs(i, cs), fs, "/static/email-templates/*.html")
 	if err != nil {
 		lo.Fatalf("error parsing e-mail notif templates: %v", err)
 	}
@@ -667,7 +670,15 @@ func initBounceManager(app *App) *bounce.Manager {
 		SESEnabled:      ko.Bool("bounce.ses_enabled"),
 		SendgridEnabled: ko.Bool("bounce.sendgrid_enabled"),
 		SendgridKey:     ko.String("bounce.sendgrid_key"),
-
+		Postmark: struct {
+			Enabled  bool
+			Username string
+			Password string
+		}{
+			ko.Bool("bounce.postmark.enabled"),
+			ko.String("bounce.postmark.username"),
+			ko.String("bounce.postmark.password"),
+		},
 		RecordBounceCB: app.core.RecordBounce,
 	}
 
@@ -700,22 +711,20 @@ func initBounceManager(app *App) *bounce.Manager {
 
 func initAbout(q *models.Queries, db *sqlx.DB) about {
 	var (
-		mem     runtime.MemStats
-		utsname syscall.Utsname
+		mem runtime.MemStats
 	)
 
 	// Memory / alloc stats.
 	runtime.ReadMemStats(&mem)
 
-	// OS info.
-	if err := syscall.Uname(&utsname); err != nil {
-		lo.Printf("WARNING: error getting system info: %v", err)
-	}
-
-	// DB dbv.
 	info := types.JSONText(`{}`)
 	if err := db.QueryRow(q.GetDBInfo).Scan(&info); err != nil {
 		lo.Printf("WARNING: error getting database version: %v", err)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		lo.Printf("WARNING: error getting hostname: %v", err)
 	}
 
 	return about{
@@ -728,10 +737,9 @@ func initAbout(q *models.Queries, db *sqlx.DB) about {
 			NumCPU: runtime.NumCPU(),
 		},
 		Host: aboutHost{
-			OS:        int8ToStr(utsname.Sysname[:]),
-			OSRelease: int8ToStr(utsname.Release[:]),
-			Machine:   int8ToStr(utsname.Machine[:]),
-			Hostname:  int8ToStr(utsname.Nodename[:]),
+			OS:       runtime.GOOS,
+			Machine:  runtime.GOARCH,
+			Hostname: hostname,
 		},
 	}
 
@@ -751,11 +759,7 @@ func initHTTPServer(app *App) *echo.Echo {
 		}
 	})
 
-	// Parse and load user facing templates.
-	tpl, err := stuffbin.ParseTemplatesGlob(template.FuncMap{
-		"L": func() *i18n.I18n {
-			return app.i18n
-		}}, app.fs, "/public/templates/*.html")
+	tpl, err := stuffbin.ParseTemplatesGlob(initTplFuncs(app.i18n, app.constants), app.fs, "/public/templates/*.html")
 	if err != nil {
 		lo.Fatalf("error parsing public templates: %v", err)
 	}
@@ -765,8 +769,10 @@ func initHTTPServer(app *App) *echo.Echo {
 		RootURL:             app.constants.RootURL,
 		LogoURL:             app.constants.LogoURL,
 		FaviconURL:          app.constants.FaviconURL,
+		AssetVersion:        app.constants.AssetVersion,
 		EnablePublicSubPage: app.constants.EnablePublicSubPage,
 		EnablePublicArchive: app.constants.EnablePublicArchive,
+		IndividualTracking:  app.constants.Privacy.IndividualTracking,
 	}
 
 	// Initialize the static file server.
@@ -789,7 +795,7 @@ func initHTTPServer(app *App) *echo.Echo {
 	// Start the server.
 	go func() {
 		if err := srv.Start(ko.String("app.address")); err != nil {
-			if strings.Contains(err.Error(), "Server closed") {
+			if errors.Is(err, http.ErrServerClosed) {
 				lo.Println("HTTP server shut down")
 			} else {
 				lo.Fatalf("error starting HTTP server: %v", err)
@@ -804,6 +810,22 @@ func initCaptcha() *captcha.Captcha {
 	return captcha.New(captcha.Opt{
 		CaptchaSecret: ko.String("security.captcha_secret"),
 	})
+}
+
+func initCron(core *core.Core) {
+	c := cron.New()
+	_, err := c.Add(ko.MustString("app.cache_slow_queries_interval"), func() {
+		lo.Println("refreshing slow query cache")
+		_ = core.RefreshMatViews(true)
+		lo.Println("done refreshing slow query cache")
+	})
+	if err != nil {
+		lo.Printf("error initializing slow cache query cron: %v", err)
+		return
+	}
+
+	c.Start()
+	lo.Printf("IMPORTANT: database slow query caching is enabled. Aggregate numbers and stats will not be realtime. Next refresh at: %v", c.Entries()[0].Next)
 }
 
 func awaitReload(sigChan chan os.Signal, closerWait chan bool, closer func()) chan bool {
@@ -848,4 +870,33 @@ func joinFSPaths(root string, paths []string) []string {
 	}
 
 	return out
+}
+
+func initTplFuncs(i *i18n.I18n, cs *constants) template.FuncMap {
+	funcs := template.FuncMap{
+		"RootURL": func() string {
+			return cs.RootURL
+		},
+		"LogoURL": func() string {
+			return cs.LogoURL
+		},
+		"Date": func(layout string) string {
+			if layout == "" {
+				layout = time.ANSIC
+			}
+			return time.Now().Format(layout)
+		},
+		"L": func() *i18n.I18n {
+			return i
+		},
+		"Safe": func(safeHTML string) template.HTML {
+			return template.HTML(safeHTML)
+		},
+	}
+
+	for k, v := range sprig.GenericFuncMap() {
+		funcs[k] = v
+	}
+
+	return funcs
 }

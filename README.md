@@ -2,7 +2,7 @@
 
 [![listmonk-logo](https://user-images.githubusercontent.com/547147/231084896-835dba66-2dfe-497c-ba0f-787564c0819e.png)](https://listmonk.app)
 
-listmonk is a standalone, self-hosted, newsletter and mailing list manager. It is fast, feature-rich, and packed into a single binary. It uses a PostgreSQL (⩾ v9.4) database as its data store.
+listmonk is a standalone, self-hosted, newsletter and mailing list manager. It is fast, feature-rich, and packed into a single binary. It uses a PostgreSQL (⩾ 12) database as its data store.
 
 [![listmonk-dashboard](https://user-images.githubusercontent.com/547147/134939475-e0391111-f762-44cb-b056-6cb0857755e3.png)](https://listmonk.app)
 
@@ -18,7 +18,7 @@ The latest image is available on DockerHub at [`listmonk/listmonk:latest`](https
 
 ```bash
 mkdir listmonk-demo && cd listmonk-demo
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-demo.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-demo.sh)"
 ```
 
 DO NOT use this demo setup in production.
@@ -27,7 +27,7 @@ DO NOT use this demo setup in production.
 
 ```bash
 mkdir listmonk && cd listmonk
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-prod.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-prod.sh)"
 ```
 Visit `http://localhost:9000`.
 

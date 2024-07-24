@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"net/http"
 	"path"
@@ -13,7 +14,7 @@ import (
 
 const (
 	// stdInputMaxLen is the maximum allowed length for a standard input field.
-	stdInputMaxLen = 200
+	stdInputMaxLen = 2000
 
 	sortAsc  = "asc"
 	sortDesc = "desc"
@@ -69,6 +70,7 @@ func initHTTPHandlers(e *echo.Echo, app *App) {
 	e.GET("/", func(c echo.Context) error {
 		return c.Render(http.StatusOK, "home", publicTpl{Title: "listmonk"})
 	})
+
 	g.GET(path.Join(adminRoot, ""), handleAdminPage)
 	g.GET(path.Join(adminRoot, "/custom.css"), serveCustomApperance("admin.custom_css"))
 	g.GET(path.Join(adminRoot, "/custom.js"), serveCustomApperance("admin.custom_js"))
@@ -204,7 +206,7 @@ func initHTTPHandlers(e *echo.Echo, app *App) {
 	if app.constants.EnablePublicArchive {
 		e.GET("/archive", handleCampaignArchivesPage)
 		e.GET("/archive.xml", handleGetCampaignArchivesFeed)
-		e.GET("/archive/:uuid", handleCampaignArchivePage)
+		e.GET("/archive/:id", handleCampaignArchivePage)
 		e.GET("/archive/latest", handleCampaignArchivePageLatest)
 	}
 
@@ -213,6 +215,18 @@ func initHTTPHandlers(e *echo.Echo, app *App) {
 
 	// Public health API endpoint.
 	e.GET("/health", handleHealthCheck)
+
+	// 404 pages.
+	e.RouteNotFound("/*", func(c echo.Context) error {
+		return c.Render(http.StatusNotFound, tplMessage,
+			makeMsgTpl("404 - "+app.i18n.T("public.notFoundTitle"), "", ""))
+	})
+	e.RouteNotFound("/api/*", func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusNotFound, "404 unknown endpoint")
+	})
+	e.RouteNotFound("/admin/*", func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusNotFound, "404 page not found")
+	})
 }
 
 // handleAdminPage is the root handler that renders the Javascript admin frontend.
@@ -223,6 +237,8 @@ func handleAdminPage(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+
+	b = bytes.ReplaceAll(b, []byte("asset_version"), []byte(app.constants.AssetVersion))
 
 	return c.HTMLBlob(http.StatusOK, b)
 }

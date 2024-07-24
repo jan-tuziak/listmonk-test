@@ -15,10 +15,12 @@ type Settings struct {
 	CheckUpdates                  bool     `json:"app.check_updates"`
 	AppLang                       string   `json:"app.lang"`
 
-	AppBatchSize     int `json:"app.batch_size"`
-	AppConcurrency   int `json:"app.concurrency"`
-	AppMaxSendErrors int `json:"app.max_send_errors"`
-	AppMessageRate   int `json:"app.message_rate"`
+	AppBatchSize             int    `json:"app.batch_size"`
+	AppConcurrency           int    `json:"app.concurrency"`
+	AppMaxSendErrors         int    `json:"app.max_send_errors"`
+	AppMessageRate           int    `json:"app.message_rate"`
+	CacheSlowQueries         bool   `json:"app.cache_slow_queries"`
+	CacheSlowQueriesInterval string `json:"app.cache_slow_queries_interval"`
 
 	AppMessageSlidingWindow         bool   `json:"app.message_sliding_window"`
 	AppMessageSlidingWindowDuration string `json:"app.message_sliding_window_duration"`
@@ -31,6 +33,7 @@ type Settings struct {
 	PrivacyAllowExport        bool     `json:"privacy.allow_export"`
 	PrivacyAllowWipe          bool     `json:"privacy.allow_wipe"`
 	PrivacyExportable         []string `json:"privacy.exportable"`
+	PrivacyRecordOptinIP      bool     `json:"privacy.record_optin_ip"`
 	DomainBlocklist           []string `json:"privacy.domain_blocklist"`
 
 	SecurityEnableCaptcha bool   `json:"security.enable_captcha"`
@@ -91,7 +94,12 @@ type Settings struct {
 	SESEnabled      bool   `json:"bounce.ses_enabled"`
 	SendgridEnabled bool   `json:"bounce.sendgrid_enabled"`
 	SendgridKey     string `json:"bounce.sendgrid_key"`
-	BounceBoxes     []struct {
+	BouncePostmark  struct {
+		Enabled  bool   `json:"enabled"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	} `json:"bounce.postmark"`
+	BounceBoxes []struct {
 		UUID          string `json:"uuid"`
 		Enabled       bool   `json:"enabled"`
 		Type          string `json:"type"`

@@ -2,16 +2,17 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
-	"github.com/gofrs/uuid"
+	"github.com/gdgvda/cron"
+	"github.com/gofrs/uuid/v5"
 	"github.com/jmoiron/sqlx/types"
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/providers/rawbytes"
@@ -21,11 +22,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+const pwdMask = "•"
+
 type aboutHost struct {
-	OS        string `json:"os"`
-	OSRelease string `json:"os_release"`
-	Machine   string `json:"arch"`
-	Hostname  string `json:"hostname"`
+	OS       string `json:"os"`
+	Machine  string `json:"arch"`
+	Hostname string `json:"hostname"`
 }
 type aboutSystem struct {
 	NumCPU  int    `json:"num_cpu"`
@@ -57,17 +59,18 @@ func handleGetSettings(c echo.Context) error {
 
 	// Empty out passwords.
 	for i := 0; i < len(s.SMTP); i++ {
-		s.SMTP[i].Password = ""
+		s.SMTP[i].Password = strings.Repeat(pwdMask, utf8.RuneCountInString(s.SMTP[i].Password))
 	}
 	for i := 0; i < len(s.BounceBoxes); i++ {
-		s.BounceBoxes[i].Password = ""
+		s.BounceBoxes[i].Password = strings.Repeat(pwdMask, utf8.RuneCountInString(s.BounceBoxes[i].Password))
 	}
 	for i := 0; i < len(s.Messengers); i++ {
-		s.Messengers[i].Password = ""
+		s.Messengers[i].Password = strings.Repeat(pwdMask, utf8.RuneCountInString(s.Messengers[i].Password))
 	}
-	s.UploadS3AwsSecretAccessKey = ""
-	s.SendgridKey = ""
-	s.SecurityCaptchaSecret = ""
+	s.UploadS3AwsSecretAccessKey = strings.Repeat(pwdMask, utf8.RuneCountInString(s.UploadS3AwsSecretAccessKey))
+	s.SendgridKey = strings.Repeat(pwdMask, utf8.RuneCountInString(s.SendgridKey))
+	s.SecurityCaptchaSecret = strings.Repeat(pwdMask, utf8.RuneCountInString(s.SecurityCaptchaSecret))
+	s.BouncePostmark.Password = strings.Repeat(pwdMask, utf8.RuneCountInString(s.BouncePostmark.Password))
 
 	return c.JSON(http.StatusOK, okResp{s})
 }
@@ -105,6 +108,10 @@ func handleUpdateSettings(c echo.Context) error {
 			set.SMTP[i].UUID = uuid.Must(uuid.NewV4()).String()
 		}
 
+		// Ensure the HOST is trimmed of any whitespace.
+		// This is a common mistake when copy-pasting SMTP settings.
+		set.SMTP[i].Host = strings.TrimSpace(s.Host)
+
 		// If there's no password coming in from the frontend, copy the existing
 		// password by matching the UUID.
 		if s.Password == "" {
@@ -119,6 +126,8 @@ func handleUpdateSettings(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("settings.errorNoSMTP"))
 	}
 
+	set.AppRootURL = strings.TrimRight(set.AppRootURL, "/")
+
 	// Bounce boxes.
 	for i, s := range set.BounceBoxes {
 		// Assign a UUID. The frontend only sends a password when the user explicitly
@@ -128,6 +137,10 @@ func handleUpdateSettings(c echo.Context) error {
 		if s.UUID == "" {
 			set.BounceBoxes[i].UUID = uuid.Must(uuid.NewV4()).String()
 		}
+
+		// Ensure the HOST is trimmed of any whitespace.
+		// This is a common mistake when copy-pasting SMTP settings.
+		set.BounceBoxes[i].Host = strings.TrimSpace(s.Host)
 
 		if d, _ := time.ParseDuration(s.ScanInterval); d.Minutes() < 1 {
 			return echo.NewHTTPError(http.StatusBadRequest, app.i18n.T("settings.bounces.invalidScanInterval"))
@@ -182,6 +195,9 @@ func handleUpdateSettings(c echo.Context) error {
 	if set.SendgridKey == "" {
 		set.SendgridKey = cur.SendgridKey
 	}
+	if set.BouncePostmark.Password == "" {
+		set.BouncePostmark.Password = cur.BouncePostmark.Password
+	}
 	if set.SecurityCaptchaSecret == "" {
 		set.SecurityCaptchaSecret = cur.SecurityCaptchaSecret
 	}
@@ -199,6 +215,13 @@ func handleUpdateSettings(c echo.Context) error {
 		}
 	}
 	set.DomainBlocklist = doms
+
+	// Validate slow query caching cron.
+	if set.CacheSlowQueries {
+		if _, err := cron.ParseStandard(set.CacheSlowQueriesInterval); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, app.i18n.Ts("globals.messages.invalidData")+": slow query cron: "+err.Error())
+		}
+	}
 
 	// Update the settings in the DB.
 	if err := app.core.UpdateSettings(set); err != nil {
@@ -237,7 +260,7 @@ func handleTestSMTPSettings(c echo.Context) error {
 	app := c.Get("app").(*App)
 
 	// Copy the raw JSON post body.
-	reqBody, err := ioutil.ReadAll(c.Request().Body)
+	reqBody, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		app.log.Printf("error reading SMTP test: %v", err)
 		return echo.NewHTTPError(http.StatusBadRequest, app.i18n.Ts("globals.messages.internalError"))
@@ -284,7 +307,6 @@ func handleTestSMTPSettings(c echo.Context) error {
 	m.Subject = app.i18n.T("settings.smtp.testConnection")
 	m.Body = b.Bytes()
 	if err := msgr.Push(m); err != nil {
-		app.log.Printf("error sending SMTP test (%s): %v", m.Subject, err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -292,18 +314,12 @@ func handleTestSMTPSettings(c echo.Context) error {
 }
 
 func handleGetAboutInfo(c echo.Context) error {
-	app := c.Get("app").(*App)
-
 	var (
-		mem     runtime.MemStats
-		utsname syscall.Utsname
+		app = c.Get("app").(*App)
+		mem runtime.MemStats
 	)
 
 	runtime.ReadMemStats(&mem)
-
-	if err := syscall.Uname(&utsname); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Errorf("error getting system info: %v", err))
-	}
 
 	out := app.about
 	out.System.AllocMB = mem.Alloc / 1024 / 1024

@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
 
-	"github.com/gofrs/uuid"
+	"github.com/gofrs/uuid/v5"
 	"github.com/jmoiron/sqlx"
 	"github.com/knadh/listmonk/models"
 	"github.com/knadh/stuffbin"
@@ -159,6 +158,7 @@ func install(lastVer string, db *sqlx.DB, fs stuffbin.FileSystem, prompt, idempo
 		campTplID,
 		pq.Int64Array{1},
 		false,
+		"welcome-to-listmonk",
 		archiveTplID,
 		`{"name": "Subscriber"}`,
 		nil,
@@ -224,7 +224,7 @@ func newConfigFile(path string) error {
 			ReplaceAll(b, []byte(fmt.Sprintf(`admin_password = "%s"`, pwd)))
 	}
 
-	return ioutil.WriteFile(path, b, 0644)
+	return os.WriteFile(path, b, 0644)
 }
 
 // checkSchema checks if the DB schema is installed.

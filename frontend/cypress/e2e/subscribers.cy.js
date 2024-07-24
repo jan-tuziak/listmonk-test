@@ -147,7 +147,7 @@ describe('Subscribers', () => {
       // Get the ID from the header and proceed to fill the form.
       let id = 0;
       cy.get('[data-cy=id]').then(($el) => {
-        id = $el.text();
+        id = parseInt($el.text());
 
         cy.get('input[name=email]').clear().type(email);
         cy.get('input[name=name]').clear().type(name);
@@ -162,9 +162,11 @@ describe('Subscribers', () => {
     });
 
     // Confirm the edits on the table.
-    cy.wait(250);
+    cy.wait(500);
+    cy.log(rows);
     cy.get('tbody tr').each(($el) => {
-      cy.wrap($el).find('td[data-id]').invoke('attr', 'data-id').then((id) => {
+      cy.wrap($el).find('td[data-id]').invoke('attr', 'data-id').then((idStr) => {
+        const id = parseInt(idStr);
         cy.wrap($el).find('td[data-label=E-mail]').contains(rows[id].email.toLowerCase());
         cy.wrap($el).find('td[data-label=Name]').contains(rows[id].name);
         cy.wrap($el).find('td[data-label=Status]').contains(rows[id].status, { matchCase: false });
@@ -234,9 +236,9 @@ describe('Subscribers', () => {
   });
 
   it('Sorts subscribers', () => {
-    const asc = [3, 4, 5, 6, 7, 8];
-    const desc = [8, 7, 6, 5, 4, 3];
-    const cases = ['cy-status', 'cy-email', 'cy-name', 'cy-created_at', 'cy-updated_at'];
+    let asc = [3, 4, 5, 6, 7, 8];
+    let desc = [8, 7, 6, 5, 4, 3];
+    let cases = ['cy-email', 'cy-name', 'cy-created_at', 'cy-updated_at'];
 
     cases.forEach((c) => {
       cy.sortTable(`thead th.${c}`, asc);
@@ -244,6 +246,19 @@ describe('Subscribers', () => {
       cy.sortTable(`thead th.${c}`, desc);
       cy.wait(250);
     });
+
+
+    asc = [4, 6, 8, 3, 5, 7];
+    desc = [7, 5, 3, 8, 6, 4];
+    cases = ['cy-status'];
+
+    cases.forEach((c) => {
+      cy.sortTable(`thead th.${c}`, asc);
+      cy.wait(250);
+      cy.sortTable(`thead th.${c}`, desc);
+      cy.wait(250);
+    });
+
   });
 });
 
@@ -339,7 +354,7 @@ describe('Domain blocklist', () => {
     cy.get('.b-tabs nav a').eq(2).click();
     cy.get('textarea[name="privacy.domain_blocklist"]').clear();
     cy.get('[data-cy=btn-save]').click();
-    cy.wait(1000);
+    cy.wait(3000);
 
     // Add banned domain.
     cy.request({

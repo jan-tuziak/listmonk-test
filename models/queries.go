@@ -37,15 +37,16 @@ type Queries struct {
 	ExportSubscriberData            *sqlx.Stmt `query:"export-subscriber-data"`
 
 	// Non-prepared arbitrary subscriber queries.
-	QuerySubscribers                       string `query:"query-subscribers"`
-	QuerySubscribersCount                  string `query:"query-subscribers-count"`
-	QuerySubscribersForExport              string `query:"query-subscribers-for-export"`
-	QuerySubscribersTpl                    string `query:"query-subscribers-template"`
-	DeleteSubscribersByQuery               string `query:"delete-subscribers-by-query"`
-	AddSubscribersToListsByQuery           string `query:"add-subscribers-to-lists-by-query"`
-	BlocklistSubscribersByQuery            string `query:"blocklist-subscribers-by-query"`
-	DeleteSubscriptionsByQuery             string `query:"delete-subscriptions-by-query"`
-	UnsubscribeSubscribersFromListsByQuery string `query:"unsubscribe-subscribers-from-lists-by-query"`
+	QuerySubscribers                       string     `query:"query-subscribers"`
+	QuerySubscribersCount                  string     `query:"query-subscribers-count"`
+	QuerySubscribersCountAll               *sqlx.Stmt `query:"query-subscribers-count-all"`
+	QuerySubscribersForExport              string     `query:"query-subscribers-for-export"`
+	QuerySubscribersTpl                    string     `query:"query-subscribers-template"`
+	DeleteSubscribersByQuery               string     `query:"delete-subscribers-by-query"`
+	AddSubscribersToListsByQuery           string     `query:"add-subscribers-to-lists-by-query"`
+	BlocklistSubscribersByQuery            string     `query:"blocklist-subscribers-by-query"`
+	DeleteSubscriptionsByQuery             string     `query:"delete-subscriptions-by-query"`
+	UnsubscribeSubscribersFromListsByQuery string     `query:"unsubscribe-subscribers-from-lists-by-query"`
 
 	CreateList      *sqlx.Stmt `query:"create-list"`
 	QueryLists      string     `query:"query-lists"`
@@ -65,14 +66,13 @@ type Queries struct {
 
 	// These two queries are read as strings and based on settings.individual_tracking=on/off,
 	// are interpolated and copied to view and click counts. Same query, different tables.
-	GetCampaignAnalyticsCounts       string     `query:"get-campaign-analytics-counts"`
-	GetCampaignAnalyticsCountsUnique string     `query:"get-campaign-analytics-unique-counts"`
-	GetCampaignViewCounts            *sqlx.Stmt `query:"get-campaign-view-counts"`
-	GetCampaignClickCounts           *sqlx.Stmt `query:"get-campaign-click-counts"`
-	GetCampaignLinkCounts            *sqlx.Stmt `query:"get-campaign-link-counts"`
-	GetCampaignBounceCounts          *sqlx.Stmt `query:"get-campaign-bounce-counts"`
-	DeleteCampaignViews              *sqlx.Stmt `query:"delete-campaign-views"`
-	DeleteCampaignLinkClicks         *sqlx.Stmt `query:"delete-campaign-link-clicks"`
+	GetCampaignAnalyticsCounts string     `query:"get-campaign-analytics-counts"`
+	GetCampaignViewCounts      *sqlx.Stmt `query:"get-campaign-view-counts"`
+	GetCampaignClickCounts     *sqlx.Stmt `query:"get-campaign-click-counts"`
+	GetCampaignLinkCounts      *sqlx.Stmt `query:"get-campaign-link-counts"`
+	GetCampaignBounceCounts    *sqlx.Stmt `query:"get-campaign-bounce-counts"`
+	DeleteCampaignViews        *sqlx.Stmt `query:"delete-campaign-views"`
+	DeleteCampaignLinkClicks   *sqlx.Stmt `query:"delete-campaign-link-clicks"`
 
 	NextCampaigns            *sqlx.Stmt `query:"next-campaigns"`
 	NextCampaignSubscribers  *sqlx.Stmt `query:"next-campaign-subscribers"`
