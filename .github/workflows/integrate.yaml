@@ -15,7 +15,9 @@ jobs:
         run: sh -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-demo.sh)"
       - name: Check if listmonk is running
         run: docker ps
-      - run: dotnet build
+      - name: Build Tests 
+        working-directory: ./test
+        run: dotnet build
       - name: Ensure browsers are installed
         run: pwsh ./test/bin/Debug/net8.0/playwright.ps1 install --with-deps
       - name: Run Automated Tests
