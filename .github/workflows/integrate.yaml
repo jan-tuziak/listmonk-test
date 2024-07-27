@@ -10,11 +10,14 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '6.0.x'
+          dotnet-version: '8.0.x'
       - name: Install demo listmonk
         run: sh -c "$(curl -fsSL https://raw.githubusercontent.com/knadh/listmonk/master/install-demo.sh)"
       - name: Check if listmonk is running
         run: docker ps
+      - run: dotnet build
+      - name: Ensure browsers are installed
+      run: pwsh ./test/bin/Debug/net8.0/playwright.ps1 install --with-deps
       - name: Run Automated Tests
         working-directory: ./test
         run: dotnet test
