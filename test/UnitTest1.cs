@@ -6,17 +6,20 @@ namespace ListmonkTest
     [TestFixture]
     public class Tests : PageTest
     {
+        public const string URL = "http://localhost:9000";
         // [SetUp]
         // public void Setup()
         // {
             
         // }
 
-        // [Test]
-        // public void Test1()
-        // {
-        //     //Assert.Pass();
-        // }
+        [Test]
+        public async Task ListmonkHasLogo()
+        {
+            await Page.GotoAsync(URL);
+            var logo = Page.Locator("css=div.logo > a > img");
+            await Expect(logo).ToBeVisibleAsync();
+        }
 
         [Test]
         public async Task HasTitle()
