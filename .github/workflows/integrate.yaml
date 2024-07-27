@@ -17,7 +17,7 @@ jobs:
         run: docker ps
       - run: dotnet build
       - name: Ensure browsers are installed
-      run: pwsh ./test/bin/Debug/net8.0/playwright.ps1 install --with-deps
+        run: pwsh ./test/bin/Debug/net8.0/playwright.ps1 install --with-deps
       - name: Run Automated Tests
         working-directory: ./test
         run: dotnet test
